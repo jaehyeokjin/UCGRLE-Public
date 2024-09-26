@@ -1,0 +1,114 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{hyperref}
+
+\title{Manual for the Ultra-Coarse-Graining at Rapid Local Equilibrium (UCG-RLE) Theory and LAMMPS Codes}
+\author{Jaehyeok Jin (with James F. Dama)\\ jhjin@uchicago.edu}
+\date{Drafted: Feb 1, 2021 \\ Updated: Sep 26, 2024}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+This is the manual for the Ultra-Coarse-Graining at Rapid Local Equilibrium (UCG-RLE) theory and its implementation in LAMMPS. The manual describes the theoretical background, the technical implementation, and the practical aspects of using this code in molecular simulations.
+
+\section{Algorithm}
+The UCG force components introduce technical difficulties that have been solved by a new UCG algorithm based on Ref. [1]. At the rapid local equilibrium limit, the effective UCG potential \( U \) is written as:
+\[
+U = \sum_{I} p^I U(R_I)
+\]
+where \( p^I \) is a set of per-particle (substate) probabilities occupying a given state \( s_I \). These probabilities are evaluated based on the local environment of the coarse-grained (CG) particles using a pair neighbor list, as implemented in LAMMPS.
+
+The derivatives of the UCG potential contribute to the force components:
+\[
+\nabla U = \sum_{I} \nabla_I \left( p^I U(R_I) \right)
+\]
+In contrast to conventional CG force fields, \( p^I \) depends on the CG configurations, complicating the force component evaluation.
+
+\subsection{Many-body interactions}
+The many-body nature of the UCG force field arises because the substate probability of CG site \( I \) is determined by the local density of CG site \( I \), as a function of \( R_J \):
+\[
+p^I(R_J) = f\left( \rho(R_J) \right), \quad \rho(R_J) = \sum_{J \in N(I)} \omega(R_{IJ})
+\]
+where \( N(I) \) denotes the neighbors of CG site \( I \). The force on particle \( I \) can be expressed as:
+\[
+F_I = - \nabla_I U = - \sum_{J \in N(I)} \sum_{s_I, s_J} p^I p^J \nabla_I U(s_I, s_J, R_{IJ})
+\]
+This leads to three-body interactions, requiring the Newton pair option to be turned off in LAMMPS.
+
+\subsection{Simplification using the chain rule}
+The UCG force calculation can be simplified using the chain rule:
+\[
+\nabla U = \sum_{I} \nabla_I \left( p^I(R_J) \right)
+\]
+This avoids the need for nested loops, which would otherwise slow down the computational performance.
+
+\subsection{Practical Warnings}
+\begin{enumerate}
+    \item This algorithm requires turning off the Newton pair during the UCG simulation.
+    \item The Virial computed from this pair style may be problematic, so we do not recommend using this pair style for constant NPT simulations.
+    \item Do not use large time steps for UCG propagation, as it can lead to instability and energy drift.
+\end{enumerate}
+
+\section{Usage}
+The current pair style is suitable for single-component liquids with two internal states. However, it can also model multi-component UCG systems, such as heterogeneous liquid-liquid interfaces.
+
+For example, the \texttt{state\_setting.txt} file might contain:
+
+\begin{verbatim}
+2 4
+2 density no_entropy
+12.5 11.00
+0.0
+2 density no_entropy
+12.5 7.00
+0.0
+\end{verbatim}
+
+The file starts with a header specifying the number of CG types and UCG states. For each CG type, the internal states and parameters are defined.
+
+\subsection{Input file: state\_setting.txt}
+The \texttt{state\_setting.txt} file defines parameters for CG types. The header provides the total number of CG types and states:
+\begin{verbatim}
+nCGtot nUCGtot
+nUCG(1) CVtype EntropyOption
+rho_th(1)  r_th(1)
+One-BodyEntropy
+nUCG(n) CVtype EntropyOption
+rho_th(n)  r_th(n)
+One-BodyEntropy
+\end{verbatim}
+
+\section{Editing the Pair Style}
+In the \texttt{pair\_table\_ucgrle.cpp} file, each function computes terms such as the counting function, the probability function, and their derivatives.
+
+\begin{itemize}
+    \item \texttt{threshold\_prob\_and\_partial\_from\_cv}: Controls the substate probability function and its derivatives.
+    \item \texttt{compute\_proximity\_function}: Computes the proximity function \( \omega(R) \).
+    \item \texttt{compute\_proximity\_function\_der}: Computes the derivative of the proximity function.
+    \item \texttt{compute}: The main routine, which sequentially computes terms such as the state probability and forces.
+\end{itemize}
+
+\section{Relevant Literature}
+Several studies have used this UCG-RLE code in different contexts:
+\begin{enumerate}
+    \item \textbf{Ref. 1:} Introduces the UCG-RLE theory and its efficient implementation, demonstrating toy models and the hydrophobic association of neopentane in methanol.
+    \item \textbf{Ref. 5:} Develops the UCG-RLE theory for liquid-vapor and liquid-liquid interfaces, showing enhanced transferability compared to bulk models.
+    \item \textbf{Ref. 6:} Implements the UCG-RLE model for hydrogen-bonding liquids, using an extended MS-CG framework.
+    \item \textbf{Ref. 7:} Links the UCG-RLE model to mean-field theories, allowing for transferability across different temperatures and phase transitions.
+\end{enumerate}
+
+\section{References}
+\begin{itemize}
+    \item J. F. Dama, J. Jin, and G. A. Voth, \textit{The Theory of Ultra-Coarse-Graining 3: Coarse-Grained Sites with Rapid Local Equilibrium of Internal States}, J. Chem. Theory Comput. 2017, 13, 1010-1022.
+    \item A. Davtyan, J. F. Dama, A. V. Sinitskiy, and G. A. Voth, \textit{The Theory of Ultra-Coarse-Graining 2: Numerical Implementation}, J. Chem. Theory Comput. 2014, 10, 5265−5275.
+    \item G. S. Ayton, G. A. Voth, \textit{Hybrid Coarse-Graining Approach for Lipid Bilayers}, J. Phys. Chem. B 2009, 113, 4413−4424.
+    \item A. Das, L. Lu, H. C. Andersen, G. A. Voth, \textit{The Multiscale Coarse-Graining Method X: Improved Algorithms for Constructing Coarse-Grained Potentials}, J. Chem. Phys. 2012, 136, 194115.
+    \item J. Jin, G. A. Voth, \textit{Ultra-Coarse-Grained Models for Interfacial Systems}, J. Chem. Theory Comput. 2018, 14, 2180-2197.
+    \item J. Jin, Y. Han, G. A. Voth, \textit{Ultra-Coarse-Grained Liquid State Models with Implicit Hydrogen Bonding}, J. Chem. Theory Comput. 2018, 14, 6159-6174.
+    \item J. Jin, A. Yu, G. A. Voth, \textit{Temperature and Phase Transferable Bottom-Up Coarse-Grained Models}, J. Chem. Theory Comput. 2020, 16, 6823-6842.
+\end{itemize}
+
+\end{document}
